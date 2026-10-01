@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>SKLAD Server — настройки</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      margin: 0; padding: 20px;
+      background: #f7f8fa; color: #1b2a4a;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { background: #16181d; color: #e6e8ec; }
+      .card { background: #1e2128 !important; border-color: #2e323c !important; }
+      .hint { color: #9aa0ab !important; }
+      input, select { background: #14161b !important; color: #e6e8ec !important; border-color: #2e323c !important; }
+    }
+    h1 { font-size: 16px; margin: 0 0 4px; }
+    .hint { color: #6b7280; font-size: 12px; margin: 0 0 16px; }
+    .card {
+      background: #fff; border: 1px solid #e3e6ec; border-radius: 10px;
+      padding: 16px; margin-bottom: 14px;
+    }
+    label { display: block; font-size: 12px; font-weight: 600; margin: 0 0 4px; }
+    input, select {
+      width: 100%; padding: 7px 10px; font-size: 13px;
+      border: 1px solid #d3d7e0; border-radius: 7px; outline: none;
+    }
+    input:focus, select:focus { border-color: #4f7cff; }
+    .row { display: flex; gap: 12px; }
+    .row > div { flex: 1; }
+    .check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .check input { width: auto; }
+    .status { font-size: 12px; margin: 10px 0 0; }
+    .ok { color: #16a34a; } .bad { color: #dc2626; }
+    .actions { display: flex; gap: 8px; justify-content: flex-end; }
+    button {
+      padding: 8px 18px; font-size: 13px; border-radius: 7px; border: none;
+      cursor: pointer; font-weight: 600;
+    }
+    .save { background: #4f7cff; color: #fff; }
+    .save:hover { background: #3f68e0; }
+    .save:disabled { opacity: .6; cursor: wait; }
+  </style>
+</head>
+<body>
+  <h1>Настройки SKLAD Server</h1>
+  <p class="hint">Конфигурация сохраняется в server-config.json рядом с программой</p>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label for="port">Порт</label>
+        <input id="port" type="number" min="1" max="65535" />
+      </div>
+      <div>
+        <label for="bind">Сетевой интерфейс</label>
+        <select id="bind">
+          <option value="0.0.0.0">Все интерфейсы (0.0.0.0)</option>
+        </select>
+      </div>
+    </div>
+    <p class="hint" style="margin-top:8px">
+      После смены порта или интерфейса сервер перезапустится автоматически
+    </p>
+  </div>
+
+  <div class="card">
+    <label for="dataDir">Папка данных (пусто = папка «data» рядом с программой)</label>
+    <input id="dataDir" type="text" placeholder="C:\SKLAD\data" />
+  </div>
+
+  <div class="card">
+    <label class="check">
+      <input id="autostart" type="checkbox" />
+      Запускать SKLAD Server при входе в Windows
+    </label>
+  </div>
+
+  <div class="card">
+    <label>Статус</label>
+    <p class="status" id="status">…</p>
+  </div>
+
+  <div class="actions">
+    <button class="save" id="save">Сохранить</button>
+  </div>
+
+  <script src="settings.js"></script>
+</body>
+</html>

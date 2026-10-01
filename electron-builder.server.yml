@@ -1,0 +1,38 @@
+# SKLAD v3.1 — сборка SKLAD_Server.exe (портативный, tray-only)
+appId: com.sklad.server
+productName: SKLAD_Server
+copyright: SKLAD Server © 2026 v3.1
+
+directories:
+  output: release/server
+
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+  icon: electron/icon.ico
+
+portable:
+  artifactName: SKLAD_Server-3.1.0.exe
+  unpackDirName: SKLADServer
+
+# В asar — только процессы Electron (Next-standalone идёт отдельным ресурсом)
+files:
+  - electron/server-main.js
+  - electron/settings.html
+  - electron/settings.js
+  - electron/settings-preload.js
+  - electron/icon.ico
+  - electron/icon.png
+  - package.json
+  - "!node_modules/**/*"
+
+# Standalone-сервер Next.js (server.js + node_modules + .next + public)
+extraResources:
+  - from: dist-app
+    to: sklad-server/ui
+
+asar: true
+npmRebuild: false
+nodeGypRebuild: false

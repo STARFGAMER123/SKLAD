@@ -1,0 +1,45 @@
+{
+  "appId": "com.sklad.warehouse",
+  "productName": "SKLAD",
+  "copyright": "SKLAD © 2025 v2.1",
+  "directories": {
+    "output": "dist-electron"
+  },
+  "win": {
+    "target": [
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "electron/icon.ico"
+  },
+  "portable": {
+    "artifactName": "SKLAD_Portable.exe",
+    "unpackDirName": "SKLAD"
+  },
+  "files": [
+    ".next/standalone/**/*",
+    ".next/static/**/*",
+    "public/**/*",
+    "electron/**/*",
+    "node_modules/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": ".next/standalone",
+      "to": "app"
+    },
+    {
+      "from": ".next/static",
+      "to": "app/.next/static"
+    },
+    {
+      "from": "public",
+      "to": "app/public"
+    }
+  ],
+  "npmRebuild": true,
+  "nodeGypRebuild": false
+}

@@ -1,0 +1,36 @@
+# SKLAD v3.1 — сборка SKLAD_Client.exe (портативный, толстый клиент)
+appId: com.sklad.client
+productName: SKLAD_Client
+copyright: SKLAD Client © 2026 v3.1
+
+directories:
+  output: release/client
+
+win:
+  target:
+    - target: portable
+      arch:
+        - x64
+  icon: electron/icon.ico
+
+portable:
+  artifactName: SKLAD_Client-3.1.0.exe
+  unpackDirName: SKLADClient
+
+# В asar — только процессы Electron (статический UI идёт отдельным ресурсом)
+files:
+  - electron/client-main.js
+  - electron/client-preload.js
+  - electron/icon.ico
+  - electron/icon.png
+  - package.json
+  - "!node_modules/**/*"
+
+# Статический экспорт Next.js (index.html + _next/…)
+extraResources:
+  - from: out
+    to: sklad-client/ui
+
+asar: true
+npmRebuild: false
+nodeGypRebuild: false

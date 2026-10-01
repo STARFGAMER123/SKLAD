@@ -1,0 +1,14 @@
+node_modules/
+.next/
+prisma/*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.env
+dist-app/
+release/
+out/
+src/middleware.ts.bak
+dev.log
+server.log
+import-test.db
