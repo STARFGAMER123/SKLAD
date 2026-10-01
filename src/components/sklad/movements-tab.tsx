@@ -347,16 +347,31 @@ export function MovementsTab() {
       const aVal = a[key] ?? '';
       const bVal = b[key] ?? '';
 
+      let result = 0;
       if (typeof aVal === 'number' && typeof bVal === 'number') {
-        return direction === 'asc' ? aVal - bVal : bVal - aVal;
+        result = direction === 'asc' ? aVal - bVal : bVal - aVal;
+      } else {
+        const aStr = String(aVal).toLowerCase();
+        const bStr = String(bVal).toLowerCase();
+        if (aStr < bStr) result = direction === 'asc' ? -1 : 1;
+        else if (aStr > bStr) result = direction === 'asc' ? 1 : -1;
       }
 
-      const aStr = String(aVal).toLowerCase();
-      const bStr = String(bVal).toLowerCase();
+      // Тай-брейкер: при равных значениях ключа сохраняем хронологию операций.
+      // Без него строки одного дня шли в порядке возрастания id (API отдаёт
+      // ORDER BY date, id, а стабильная сортировка сохраняет этот порядок),
+      // из-за чего верхняя строка таблицы ("новые сверху") показывала остаток
+      // после ПЕРВОЙ операции дня, а не актуальный остаток после последней.
+      if (result === 0 && key !== 'id') {
+        if (key === 'date') {
+          result = direction === 'asc' ? a.id - b.id : b.id - a.id;
+        } else {
+          const dateCmp = String(b.date ?? '').localeCompare(String(a.date ?? ''));
+          result = dateCmp !== 0 ? dateCmp : b.id - a.id;
+        }
+      }
 
-      if (aStr < bStr) return direction === 'asc' ? -1 : 1;
-      if (aStr > bStr) return direction === 'asc' ? 1 : -1;
-      return 0;
+      return result;
     });
 
     return sorted;
