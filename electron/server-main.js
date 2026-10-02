@@ -4,13 +4,15 @@
  * - Свёрнут в трей; Next.js standalone запускается дочерним процессом
  *   через ELECTRON_RUN_AS_NODE (проверенный паттерн v2.1).
  * - Порт/настройки: server-config.json РЯДОМ С EXE (PORTABLE_EXECUTABLE_DIR).
+ * - Лог: sklad-server.log РЯДОМ С EXE — все шаги запуска и ошибки
+ *   (portable-режим без консоли, console.* невидим).
  * - Control-сервер 127.0.0.1:<controlPort>/pick-db — нативный диалог
  *   выбора базы на серверном ПК (для /api/server/db/pick).
  * - Смена порта/интерфейса → перезапуск Next-процесса.
  * - Автозапуск Windows (app.setLoginItemSettings).
  */
 
-const { app, Tray, Menu, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, Tray, Menu, BrowserWindow, ipcMain, dialog, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -42,9 +44,47 @@ function saveConfig() {
   try {
     fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), 'utf8');
   } catch (e) {
-    console.error('[SKLAD] config save failed:', e.message);
+    logErr(`config save failed: ${e.message}`);
   }
 }
+
+// ─── Лог рядом с exe (portable без консоли!) ─────────────────────────────────
+const logPath = path.join(exeDir, 'sklad-server.log');
+let logStream = null;
+function openLog() {
+  try {
+    // одна ступень ротации: прошлый лог -> .1.log
+    try {
+      if (fs.existsSync(logPath)) fs.renameSync(logPath, logPath.replace(/\.log$/, '.1.log'));
+    } catch {}
+    logStream = fs.createWriteStream(logPath, { flags: 'a' });
+    logInfo(`=== SKLAD Server запущен | exe=${process.execPath} | exeDir=${exeDir}`);
+    logInfo(`electron=${process.versions.electron} node=${process.versions.node} abi=${process.versions.modules} platform=${process.platform} arch=${process.arch}`);
+  } catch (e) {
+    // совсем некуда писать — остаётся console
+    console.error('[SKLAD] log open failed:', e.message);
+  }
+}
+function logInfo(msg) {
+  const line = `[${new Date().toISOString()}] ${msg}`;
+  if (logStream) logStream.write(line + '\n');
+  console.log(line);
+}
+function logErr(msg) {
+  const line = `[${new Date().toISOString()}] [ERROR] ${msg}`;
+  if (logStream) logStream.write(line + '\n');
+  console.error(line);
+}
+function showError(title, details) {
+  logErr(`${title}: ${details}`);
+  try {
+    dialog.showErrorBox(title, `${details}\n\nПодробности: ${logPath}`);
+  } catch {}
+}
+
+// Перехват тихих падений main-процесса
+process.on('uncaughtException', (e) => showError('SKLAD Server — внутренняя ошибка', `${e.stack || e.message}`));
+process.on('unhandledRejection', (e) => showError('SKLAD Server — ошибка promise', `${(e && (e.stack || e.message)) || e}`));
 
 // ─── Состояние ───────────────────────────────────────────────────────────────
 let serverProcess = null;
@@ -54,8 +94,13 @@ let settingsWin = null;
 let nextReady = false;
 const startedAt = Date.now();
 
+// Если экземпляр уже запущен — сообщаем понятно и выходим
 if (!app.requestSingleInstanceLock()) {
-  app.quit();
+  app.whenReady().then(() => {
+    showError('SKLAD Server уже запущен', 'Новый экземпляр закроется.\nПроверьте трей или завершите старый процесс SKLAD_Server.exe в диспетчере задач.');
+    app.quit();
+  });
+  setImmediate(() => app.quit());
 }
 
 // ─── Next.js standalone ─────────────────────────────────────────────────────
@@ -64,15 +109,21 @@ function uiPath() {
 }
 function dataDir() {
   const d = cfg.dataDir && cfg.dataDir.trim() ? cfg.dataDir.trim() : path.join(exeDir, 'data');
-  if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  try {
+    if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+  } catch (e) {
+    showError('SKLAD Server — папка данных недоступна', `Не удалось создать папку данных:\n${d}\n\n${e.message}`);
+  }
   return d;
 }
 
 function startNext() {
   if (serverProcess) return;
   const script = path.join(uiPath(), 'server.js');
+  logInfo(`startNext: resourcesPath=${process.resourcesPath}`);
+  logInfo(`startNext: script=${script} exists=${fs.existsSync(script)}`);
   if (!fs.existsSync(script)) {
-    dialog.showErrorBox('SKLAD Server', 'Не найден server.js (повреждённая установка).');
+    showError('SKLAD Server', `Не найден server.js (повреждённая установка):\n${script}`);
     app.quit();
     return;
   }
@@ -87,15 +138,29 @@ function startNext() {
     SKLAD_CONTROL_PORT: String(cfg.controlPort),
     ELECTRON_RUN_AS_NODE: '1',
   };
-  serverProcess = spawn(process.execPath, [script], {
-    cwd: uiPath(),
-    env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
+  logInfo(`startNext: spawn PORT=${cfg.port} HOSTNAME=${cfg.bind} dataDir=${env.SKLAD_DATA_DIR}`);
+  try {
+    serverProcess = spawn(process.execPath, [script], {
+      cwd: uiPath(),
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+  } catch (e) {
+    showError('SKLAD Server — не удалось запустить Next.js', e.message);
+    serverProcess = null;
+    return;
+  }
+  serverProcess.stdout.on('data', (d) => logInfo(`[Next] ${d.toString().trim()}`));
+  serverProcess.stderr.on('data', (d) => logErr(`[Next:err] ${d.toString().trim()}`));
+  serverProcess.on('error', (e) => {
+    // spawn не удался (ENOENT/EACCES/блокировка антивирусом и т.п.)
+    showError('SKLAD Server — ошибка запуска Next.js-процесса', `${e.message}\n\nЧастые причины: антивирус заблокировал процесс, нет прав на ${exeDir}.`);
+    serverProcess = null;
+    refreshTray();
   });
-  serverProcess.stdout.on('data', (d) => console.log(`[Next] ${d.toString().trim()}`));
-  serverProcess.stderr.on('data', (d) => console.error(`[Next:err] ${d.toString().trim()}`));
-  serverProcess.on('close', () => {
+  serverProcess.on('close', (code, signal) => {
+    logInfo(`Next process closed: code=${code} signal=${signal}`);
     serverProcess = null;
     nextReady = false;
     refreshTray();
@@ -116,13 +181,19 @@ function waitReady(attempt = 0) {
     res.resume();
     if (res.statusCode === 200) {
       nextReady = true;
-      console.log(`[SKLAD] Server ready on port ${cfg.port}`);
+      logInfo(`Server ready on port ${cfg.port} (за ${((Date.now() - startedAt) / 1000).toFixed(1)} с)`);
       refreshTray();
+    } else {
+      logErr(`health: unexpected status ${res.statusCode}`);
     }
   });
   req.on('error', () => {
-    if (attempt < 60) setTimeout(() => waitReady(attempt + 1), 500);
-    else console.error('[SKLAD] Next.js не поднялся за 30 с');
+    if (attempt < 60) {
+      if (attempt % 10 === 0) logInfo(`waitReady: попытка ${attempt}/60...`);
+      setTimeout(() => waitReady(attempt + 1), 500);
+    } else {
+      showError('SKLAD Server — не дождались запуска', `Next.js не поднялся на порту ${cfg.port} за 30 с.\nСмотрите раздел [Next:err] в sklad-server.log`);
+    }
   });
   req.setTimeout(900, () => req.destroy());
 }
@@ -169,8 +240,8 @@ function startControlServer() {
     res.statusCode = 404;
     res.end();
   });
-  controlServer.on('error', (e) => console.error('[SKLAD] control server:', e.message));
-  controlServer.listen(cfg.controlPort, '127.0.0.1');
+  controlServer.on('error', (e) => logErr(`control server: ${e.message}`));
+  controlServer.listen(cfg.controlPort, '127.0.0.1', () => logInfo(`control server on 127.0.0.1:${cfg.controlPort}`));
 }
 
 // ─── Трей ────────────────────────────────────────────────────────────────────
@@ -216,6 +287,7 @@ function refreshTray() {
       webItem,
       { label: 'Настройки…', click: openSettings },
       { label: 'Открыть папку данных', click: () => require('electron').shell.openPath(dataDir()) },
+      { label: 'Показать лог', click: () => require('electron').shell.openPath(logPath) },
       { type: 'separator' },
       {
         label: 'Автозапуск с Windows',
@@ -242,7 +314,7 @@ function applyAutostart() {
   try {
     app.setLoginItemSettings({ openAtLogin: cfg.autostart, path: process.execPath });
   } catch (e) {
-    console.error('[SKLAD] autostart:', e.message);
+    logErr(`autostart: ${e.message}`);
   }
 }
 
@@ -295,12 +367,31 @@ ipcMain.handle('settings:save', (_e, next) => {
 
 // ─── Жизненный цикл ──────────────────────────────────────────────────────────
 app.whenReady().then(() => {
-  startControlServer();
-  startNext();
-  tray = new Tray(trayIcon());
-  tray.setToolTip(`SKLAD Server — порт ${cfg.port}`);
-  refreshTray();
-  applyAutostart();
+  logInfo(`whenReady: app готов за ${((Date.now() - startedAt) / 1000).toFixed(1)} с`);
+  try {
+    startControlServer();
+    startNext();
+  } catch (e) {
+    showError('SKLAD Server — ошибка старта служб', e.stack || e.message);
+  }
+  try {
+    const iconPath = trayIcon();
+    logInfo(`tray icon: ${iconPath || 'НЕ НАЙДЕН'}`);
+    tray = iconPath ? new Tray(iconPath) : new Tray(nativeImage.createEmpty());
+  } catch (e) {
+    showError('SKLAD Server — не удалось создать иконку трея', e.stack || e.message);
+    tray = null;
+  }
+  try {
+    if (tray) {
+      tray.setToolTip(`SKLAD Server — порт ${cfg.port}`);
+      refreshTray();
+    }
+    applyAutostart();
+  } catch (e) {
+    showError('SKLAD Server — ошибка инициализации трея', e.stack || e.message);
+  }
+  logInfo('whenReady: инициализация завершена');
 });
 
 app.on('second-instance', () => {
@@ -308,8 +399,12 @@ app.on('second-instance', () => {
 });
 
 app.on('before-quit', () => {
+  logInfo('before-quit: останавливаем Next и control-сервер');
   stopNext();
   if (controlServer) {
     try { controlServer.close(); } catch {}
+  }
+  if (logStream) {
+    try { logStream.end(); } catch {}
   }
 });
